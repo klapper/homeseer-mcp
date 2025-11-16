@@ -1,0 +1,9 @@
+{
+  "url": "https://connected2.homeseer.com/json",
+  "username": "your_username",
+  "password": "your_password",
+  "token": null,
+  "source": "homeseer-mcp",
+  "timeout": 30,
+  "verify_ssl": true
+}
