@@ -10,6 +10,8 @@ from config import HomeSeerConfig
 
 
 class TestHomeSeerAPIClient:
+    """Tests for HomeSeerAPIClient class."""
+    
     def test_get_control(self, client):
         """Test getting ControlPairs for a device."""
         mock_controls = [
@@ -92,7 +94,6 @@ class TestHomeSeerAPIClient:
         
         with pytest.raises(ValueError, match="Must provide either event_id OR both group and name"):
             client.run_event(name="Outside Lights Off")
-    """Tests for HomeSeerAPIClient class."""
     
     @pytest.fixture
     def config(self):
@@ -254,6 +255,8 @@ class TestHomeSeerAPIClient:
 
 
 class TestHomeSeerMCPServer:
+    """Tests for HomeSeerMCPServer class."""
+    
     def test_get_control(self, server, mock_client):
         """Test MCPServer get_control tool."""
         mock_controls = [
@@ -414,7 +417,6 @@ class TestHomeSeerMCPServer:
             name="outside lights off",
             event_id=None
         )
-    """Tests for HomeSeerMCPServer class."""
     
     @pytest.fixture
     def config(self):
