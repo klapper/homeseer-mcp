@@ -6,11 +6,14 @@ A Model Context Protocol (MCP) server for controlling HomeSeer smart home device
 
 - Control HomeSeer devices via MCP protocol
 - List and search devices with filtering
+- Retrieve and filter HomeSeer events (automation actions)
+- Execute HomeSeer events (trigger automations)
+- Get available device controls
 - Simple local network access (no authentication needed)
 - Username/password authentication for remote access
 - Configuration via JSON file or environment variables
 - Support for both local and cloud HomeSeer instances
-- Comprehensive test suite with 43+ tests
+- Comprehensive test suite
 
 ## Quick Start
 
@@ -154,10 +157,64 @@ $env:HOMESEER_PASSWORD = "your-password"
 
 The server exposes the following MCP tools:
 
+### Device Management
 - **`list_all_devices`** - List all HomeSeer devices with optional filtering and room information
+  - Parameters:
+    - `free_text_search` (optional): Filter devices by name
+    - `need_room_information` (optional): Include location details
+  - Returns: List of devices with ref, name, and optionally location fields
+
 - **`get_device_info`** - Get detailed information about a specific device by reference ID
+  - Parameters:
+    - `device_ref`: The device reference ID
+  - Returns: Detailed device information including name, location, value, status, and associated devices
+
+- **`get_control`** - Get the list of available controls for a device
+  - Parameters:
+    - `device_ref`: The device reference ID
+  - Returns: List of control options with labels, values, and control types
+
+### Device Control
 - **`control_homeseer_device`** - Control a device using device ID and control ID
-- **`control_homeseer_device_by_label`** - Control a device using a human-readable label (e.g., "On", "Off", "Close")
+  - Parameters:
+    - `device_id`: The device reference ID
+    - `control_id`: The control/value ID to set
+  - Returns: True if successful
+
+- **`control_homeseer_device_by_label`** - Control a device using a human-readable label
+  - Parameters:
+    - `device_ref`: The device reference ID
+    - `label`: The control label (e.g., "On", "Off", "Close")
+  - Returns: True if successful
+
+### Event Management
+- **`get_events`** - Get all HomeSeer events with optional filtering
+  - An event is an action to be performed such as controlling a light, a sequence of lights, a thermostat, etc.
+  - Events have two properties: a group name and an event name
+  - Parameters:
+    - `free_text_search` (optional): Filter events by name or group (case-insensitive)
+  - Returns: List of events, each containing:
+    - `Group`: The event group name (e.g., "Lighting", "Climate")
+    - `Name`: The event name (e.g., "Outside Lights Off")
+    - `id`: The unique event identifier
+    - Additional fields: `voice_command`, `voice_command_enabled`
+  - Example usage:
+    - `get_events()` - Get all events
+    - `get_events(free_text_search="lighting")` - Get all lighting-related events
+    - `get_events(free_text_search="kitchen")` - Get events with "kitchen" in name or group
+
+- **`run_event`** - Execute a HomeSeer event by group/name or event ID
+  - Triggers an automation action such as controlling lights, thermostats, or running sequences
+  - Parameters:
+    - `group`: Event group name (required if using name, not case-sensitive)
+    - `name`: Event name (required if using group, not case-sensitive)
+    - `event_id`: Event ID (alternative to group/name)
+  - Returns: True if successful
+  - Note: Must provide either `event_id` OR both `group` and `name`
+  - Example usage:
+    - `run_event(group="Lighting", name="Outside Lights Off")` - Run event by name
+    - `run_event(event_id=5)` - Run event by ID
+    - `run_event(group="Window Shutters", name="All house window shutters close")` - Execute shutter event
 
 ## Testing
 
@@ -216,11 +273,9 @@ pytest tests/ --cov=. --cov-report=html
 ```
 
 The test suite includes:
-- 43+ comprehensive tests
 - API client tests
 - MCP server tests
 - Configuration management tests
-- Integration tests
 
 ## Security Best Practices
 

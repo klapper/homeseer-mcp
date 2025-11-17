@@ -10,6 +10,88 @@ from config import HomeSeerConfig
 
 
 class TestHomeSeerAPIClient:
+    def test_get_control(self, client):
+        """Test getting ControlPairs for a device."""
+        mock_controls = [
+            {"label": "On", "value": 255},
+            {"label": "Off", "value": 0}
+        ]
+        mock_response = {"ControlPairs": mock_controls}
+        with patch.object(client, '_make_request', return_value=mock_response):
+            result = client.get_control(123)
+            assert result == mock_controls
+            client._make_request.assert_called_once_with(request="getcontrol", ref=123)
+
+    def test_get_control_empty(self, client):
+        """Test getting ControlPairs when none exist."""
+        mock_response = {"ControlPairs": []}
+        with patch.object(client, '_make_request', return_value=mock_response):
+            result = client.get_control(123)
+            assert result == []
+    
+    def test_get_events_success(self, client):
+        """Test getting all events."""
+        mock_events = [
+            {"Group": "Lighting", "Name": "Outside Lights Off", "id": 1, "voice_command": "", "voice_command_enabled": False},
+            {"Group": "Lighting", "Name": "Kitchen Lights On", "id": 2, "voice_command": "", "voice_command_enabled": False},
+            {"Group": "Climate", "Name": "Set Thermostat", "id": 3, "voice_command": "", "voice_command_enabled": False}
+        ]
+        mock_response = {"Name": "HomeSeer Events", "Version": "1.0", "Events": mock_events}
+        
+        with patch.object(client, '_make_request', return_value=mock_response):
+            result = client.get_events()
+            
+            assert result == mock_response
+            assert result["Events"] == mock_events
+            assert result["Name"] == "HomeSeer Events"
+            assert result["Version"] == "1.0"
+            client._make_request.assert_called_once_with(request="getevents")
+    
+    def test_get_events_empty(self, client):
+        """Test getting events when none exist."""
+        mock_response = {"Name": "HomeSeer Events", "Version": "1.0", "Events": []}
+        
+        with patch.object(client, '_make_request', return_value=mock_response):
+            result = client.get_events()
+            assert result["Events"] == []
+            assert result["Name"] == "HomeSeer Events"
+    
+    def test_run_event_by_id(self, client):
+        """Test running an event by ID."""
+        mock_response = {"status": "ok"}
+        
+        with patch.object(client, '_make_request', return_value=mock_response):
+            result = client.run_event(event_id=5)
+            
+            assert result is True
+            client._make_request.assert_called_once_with(request="runevent", id=5)
+    
+    def test_run_event_by_group_and_name(self, client):
+        """Test running an event by group and name."""
+        mock_response = {"status": "ok"}
+        
+        with patch.object(client, '_make_request', return_value=mock_response):
+            result = client.run_event(group="Lighting", name="Outside Lights Off")
+            
+            assert result is True
+            client._make_request.assert_called_once_with(
+                request="runevent", 
+                group="Lighting", 
+                name="Outside Lights Off"
+            )
+    
+    def test_run_event_missing_parameters(self, client):
+        """Test running an event without required parameters."""
+        with pytest.raises(ValueError, match="Must provide either event_id OR both group and name"):
+            client.run_event()
+    
+    def test_run_event_partial_parameters(self, client):
+        """Test running an event with only group or only name."""
+        with pytest.raises(ValueError, match="Must provide either event_id OR both group and name"):
+            client.run_event(group="Lighting")
+        
+        with pytest.raises(ValueError, match="Must provide either event_id OR both group and name"):
+            client.run_event(name="Outside Lights Off")
     """Tests for HomeSeerAPIClient class."""
     
     @pytest.fixture
@@ -172,6 +254,166 @@ class TestHomeSeerAPIClient:
 
 
 class TestHomeSeerMCPServer:
+    def test_get_control(self, server, mock_client):
+        """Test MCPServer get_control tool."""
+        mock_controls = [
+            {"label": "On", "value": 255},
+            {"label": "Off", "value": 0}
+        ]
+        mock_client.get_control.return_value = mock_controls
+        result = server.get_control(123)
+        assert result == mock_controls
+        mock_client.get_control.assert_called_once_with(123)
+
+    def test_get_control_empty(self, server, mock_client):
+        """Test MCPServer get_control tool with no controls."""
+        mock_client.get_control.return_value = []
+        result = server.get_control(123)
+        assert result == []
+        mock_client.get_control.assert_called_once_with(123)
+    
+    def test_get_events_no_filter(self, server, mock_client):
+        """Test MCPServer get_events tool without filter."""
+        mock_events_data = {
+            "Name": "HomeSeer Events",
+            "Version": "1.0",
+            "Events": [
+                {"Group": "Lighting", "Name": "Outside Lights Off", "id": 10, "voice_command": "", "voice_command_enabled": False},
+                {"Group": "Lighting", "Name": "Kitchen Lights On", "id": 20, "voice_command": "", "voice_command_enabled": False},
+                {"Group": "Climate", "Name": "Set Thermostat", "id": 30, "voice_command": "", "voice_command_enabled": False}
+            ]
+        }
+        mock_client.get_events.return_value = mock_events_data
+        
+        result = server.get_events()
+        
+        assert len(result) == 3
+        assert result[0]["Group"] == "Lighting"
+        assert result[0]["Name"] == "Outside Lights Off"
+        assert result[1]["Group"] == "Lighting"
+        assert result[2]["Group"] == "Climate"
+        mock_client.get_events.assert_called_once()
+    
+    def test_get_events_with_name_filter(self, server, mock_client):
+        """Test MCPServer get_events tool with name filter."""
+        mock_events_data = {
+            "Name": "HomeSeer Events",
+            "Version": "1.0",
+            "Events": [
+                {"Group": "Lighting", "Name": "Outside Lights Off", "id": 10, "voice_command": "", "voice_command_enabled": False},
+                {"Group": "Lighting", "Name": "Kitchen Lights On", "id": 20, "voice_command": "", "voice_command_enabled": False},
+                {"Group": "Climate", "Name": "Set Thermostat", "id": 30, "voice_command": "", "voice_command_enabled": False}
+            ]
+        }
+        mock_client.get_events.return_value = mock_events_data
+        
+        result = server.get_events(free_text_search="kitchen")
+        
+        assert len(result) == 1
+        assert result[0]["Name"] == "Kitchen Lights On"
+        mock_client.get_events.assert_called_once()
+    
+    def test_get_events_with_group_filter(self, server, mock_client):
+        """Test MCPServer get_events tool with group filter."""
+        mock_events_data = {
+            "Name": "HomeSeer Events",
+            "Version": "1.0",
+            "Events": [
+                {"Group": "Lighting", "Name": "Outside Lights Off", "id": 10, "voice_command": "", "voice_command_enabled": False},
+                {"Group": "Lighting", "Name": "Kitchen Lights On", "id": 20, "voice_command": "", "voice_command_enabled": False},
+                {"Group": "Climate", "Name": "Set Thermostat", "id": 30, "voice_command": "", "voice_command_enabled": False}
+            ]
+        }
+        mock_client.get_events.return_value = mock_events_data
+        
+        result = server.get_events(free_text_search="lighting")
+        
+        assert len(result) == 2
+        assert all(event["Group"] == "Lighting" for event in result)
+        mock_client.get_events.assert_called_once()
+    
+    def test_get_events_case_insensitive_filter(self, server, mock_client):
+        """Test MCPServer get_events tool with case-insensitive filter."""
+        mock_events_data = {
+            "Name": "HomeSeer Events",
+            "Version": "1.0",
+            "Events": [
+                {"Group": "Lighting", "Name": "Outside Lights Off", "id": 10, "voice_command": "", "voice_command_enabled": False},
+                {"Group": "Climate", "Name": "Set Thermostat", "id": 30, "voice_command": "", "voice_command_enabled": False}
+            ]
+        }
+        mock_client.get_events.return_value = mock_events_data
+        
+        result = server.get_events(free_text_search="LIGHTS")
+        
+        assert len(result) == 1
+        assert result[0]["Name"] == "Outside Lights Off"
+    
+    def test_get_events_no_matches(self, server, mock_client):
+        """Test MCPServer get_events tool with filter that matches nothing."""
+        mock_events_data = {
+            "Name": "HomeSeer Events",
+            "Version": "1.0",
+            "Events": [
+                {"Group": "Lighting", "Name": "Outside Lights Off", "id": 10, "voice_command": "", "voice_command_enabled": False}
+            ]
+        }
+        mock_client.get_events.return_value = mock_events_data
+        
+        result = server.get_events(free_text_search="nonexistent")
+        
+        assert len(result) == 0
+        mock_client.get_events.assert_called_once()
+    
+    def test_get_events_empty(self, server, mock_client):
+        """Test MCPServer get_events tool when no events exist."""
+        mock_events_data = {
+            "Name": "HomeSeer Events",
+            "Version": "1.0",
+            "Events": []
+        }
+        mock_client.get_events.return_value = mock_events_data
+        
+        result = server.get_events()
+        
+        assert len(result) == 0
+        mock_client.get_events.assert_called_once()
+    
+    def test_run_event_by_id(self, server, mock_client):
+        """Test MCPServer run_event tool with event ID."""
+        mock_client.run_event.return_value = True
+        
+        result = server.run_event(event_id=10)
+        
+        assert result is True
+        mock_client.run_event.assert_called_once_with(group=None, name=None, event_id=10)
+    
+    def test_run_event_by_group_and_name(self, server, mock_client):
+        """Test MCPServer run_event tool with group and name."""
+        mock_client.run_event.return_value = True
+        
+        result = server.run_event(group="Lighting", name="Kitchen Lights On")
+        
+        assert result is True
+        mock_client.run_event.assert_called_once_with(
+            group="Lighting", 
+            name="Kitchen Lights On", 
+            event_id=None
+        )
+    
+    def test_run_event_case_insensitive(self, server, mock_client):
+        """Test that run_event passes through case-insensitive parameters."""
+        mock_client.run_event.return_value = True
+        
+        result = server.run_event(group="LIGHTING", name="outside lights off")
+        
+        assert result is True
+        # Verify the parameters are passed as-is (HomeSeer API handles case-insensitivity)
+        mock_client.run_event.assert_called_once_with(
+            group="LIGHTING",
+            name="outside lights off",
+            event_id=None
+        )
     """Tests for HomeSeerMCPServer class."""
     
     @pytest.fixture
@@ -373,19 +615,27 @@ class TestHomeSeerMCPServer:
         server.mcp = Mock()
         server.run()
         server.mcp.run.assert_called_once()
-
-
-class TestIntegration:
-    """Integration tests for API Client and MCP Server."""
     
-    @pytest.fixture
-    def config(self):
-        """Create a test configuration."""
-        return HomeSeerConfig(
-            url="https://test.homeseer.com/json",
-            token="test-token",
-            timeout=10
-        )
+    def test_server_get_control(self, config):
+        """Test for get_control API call."""
+        mock_controls = [
+            {"label": "On", "value": 255},
+            {"label": "Off", "value": 0}
+        ]
+        with patch('requests.get') as mock_get:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = '{"ControlPairs": []}'
+            mock_response.json.return_value = {"ControlPairs": mock_controls}
+            mock_get.return_value = mock_response
+            with patch('server.FastMCP'):
+                server = HomeSeerMCPServer(config)
+                result = server.get_control(123)
+                assert result == mock_controls
+                call_kwargs = mock_get.call_args[1]
+                params = call_kwargs['params']
+                assert params['request'] == 'getcontrol'
+                assert params['ref'] == 123
     
     def test_server_uses_client_for_device_operations(self, config):
         """Test that server properly uses client for device operations."""

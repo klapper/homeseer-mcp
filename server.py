@@ -133,6 +133,63 @@ class HomeSeerAPIClient:
         )
         return True
 
+    def get_control(self, device_ref: int) -> list:
+        """
+        Get the list of controls for a device (HomeSeer getcontrol API).
+        Args:
+            device_ref: The device reference ID
+        Returns:
+            List of control dictionaries for the device
+        """
+        data = self._make_request(request="getcontrol", ref=device_ref)
+        self.logger.debug(f"Control data for device {device_ref}: {data}")
+        return data.get("ControlPairs", [])
+    
+    def get_events(self) -> Dict[str, Any]:
+        """
+        Get all events from HomeSeer.
+        
+        An event is an action to be performed such as controlling a light,
+        a sequence of lights, a thermostat, etc. Events have two properties:
+        a group name and an event name.
+        
+        Returns:
+            Dictionary containing event information with Name, Version, and Events list
+        """
+        data = self._make_request(request="getevents")
+        self.logger.debug(f"Retrieved {len(data.get('Events', []))} events")
+        return data
+    
+    def run_event(self, group: Optional[str] = None, name: Optional[str] = None, 
+                  event_id: Optional[int] = None) -> bool:
+        """
+        Execute a HomeSeer event.
+        
+        An event can be executed either by group name + event name OR by event ID.
+        Group and name parameters are not case-sensitive.
+        
+        Args:
+            group: Event group name (required if using name, not used with event_id)
+            name: Event name (required if using group, not used with event_id)
+            event_id: Event ID (alternative to group/name)
+            
+        Returns:
+            True if successful
+            
+        Raises:
+            ValueError: If neither (group+name) nor event_id is provided
+        """
+        if event_id is not None:
+            self._make_request(request="runevent", id=event_id)
+            self.logger.info(f"Executed event ID {event_id}")
+        elif group is not None and name is not None:
+            self._make_request(request="runevent", group=group, name=name)
+            self.logger.info(f"Executed event '{name}' in group '{group}'")
+        else:
+            raise ValueError("Must provide either event_id OR both group and name")
+        
+        return True
+
 
 class HomeSeerMCPServer:
     """
@@ -171,21 +228,85 @@ class HomeSeerMCPServer:
         self.mcp.tool(self.get_device_info)
         self.mcp.tool(self.control_homeseer_device)
         self.mcp.tool(self.control_homeseer_device_by_label)
+        self.mcp.tool(self.get_control)
+        self.mcp.tool(self.get_events)
+        self.mcp.tool(self.run_event)
+    def get_control(self, device_ref: int) -> list:
+        """Get available control options for a device (e.g., On/Off, dimmer levels).
+        
+        Args:
+            device_ref: Device reference ID
+        Returns:
+            List of control options with labels and values
+        """
+        controls = self.client.get_control(device_ref)
+        self.logger.info(f"Fetched {len(controls)} controls for device {device_ref}")
+        return controls
+    
+    def get_events(self, free_text_search: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List HomeSeer automation events with optional filtering by name or group.
+        
+        Events are automation actions like controlling lights or thermostats.
+        Each event has a Group and Name that can be used with run_event.
+        
+        Args:
+            free_text_search: Filter by event name or group (case-insensitive)
+        Returns:
+            List of events with Group, Name, and id fields
+        """
+        data = self.client.get_events()
+        events = data.get("Events", [])
+        
+        # Apply text filter if provided
+        if free_text_search:
+            search_lower = free_text_search.lower()
+            events = [
+                event for event in events
+                if search_lower in event.get("Name", "").lower() or 
+                   search_lower in event.get("Group", "").lower()
+            ]
+        
+        self.logger.info(f"Retrieved {len(events)} events (filtered from {len(data.get('Events', []))} total)")
+        return events
+    
+    def run_event(self, group: Optional[str] = None, name: Optional[str] = None,
+                  event_id: Optional[int] = None) -> bool:
+        """Execute a HomeSeer automation event by ID or by group+name.
+        
+        Use get_events to find available events. Provide either event_id OR both group and name.
+        Parameters are case-insensitive.
+        
+        Args:
+            group: Event group (required with name)
+            name: Event name (required with group)
+            event_id: Event ID (alternative to group+name)
+        Returns:
+            True if successful
+        Examples:
+            run_event(event_id=5)
+            run_event(group="Lighting", name="Outside Lights Off")
+        """
+        result = self.client.run_event(group=group, name=name, event_id=event_id)
+        
+        if event_id is not None:
+            self.logger.info(f"Executed event ID {event_id}")
+        else:
+            self.logger.info(f"Executed event '{name}' in group '{group}'")
+        
+        return result
     
     def list_all_devices(
         self,
         free_text_search: Optional[str] = None,
         need_room_information: bool = False
     ) -> List[Dict[str, Any]]:
-        """
-        List all HomeSeer devices with optional filtering.
+        """List HomeSeer devices with optional name filtering and location info.
         
         Args:
-            free_text_search: Optional text to filter device names
-            need_room_information: Include location information
-            
+            free_text_search: Filter by device name (case-insensitive)
+            need_room_information: Include location/room fields
         Returns:
-            List of device dictionaries
+            List of devices with ref, name, and optionally location fields
         """
         devices = self.client.get_all_devices()
         
@@ -221,14 +342,12 @@ class HomeSeerMCPServer:
         return result
     
     def get_device_info(self, device_ref: str) -> Dict[str, Any]:
-        """
-        Get detailed information about a specific HomeSeer device.
+        """Get detailed information about a specific device by reference ID.
         
         Args:
-            device_ref: The device reference ID
-            
+            device_ref: Device reference ID
         Returns:
-            Dictionary with device details
+            Device details including name, location, value, status, associated_devices
         """
         device = self.client.get_device_by_ref(device_ref)
         
@@ -242,13 +361,13 @@ class HomeSeerMCPServer:
         }
     
     def control_homeseer_device(self, device_id: int, control_id: int) -> bool:
-        """
-        Control a HomeSeer device by device ID and control ID.
+        """Control a device using numeric device ID and control value ID.
+        
+        Use get_control to find available control IDs for a device.
         
         Args:
-            device_id: The device reference ID
-            control_id: The control/value ID to set
-            
+            device_id: Device reference ID
+            control_id: Control/value ID to set
         Returns:
             True if successful
         """
@@ -257,13 +376,13 @@ class HomeSeerMCPServer:
         return result
     
     def control_homeseer_device_by_label(self, device_ref: int, label: str) -> bool:
-        """
-        Control a device using a label string.
+        """Control a device using a human-readable label like "On", "Off", "Close".
+        
+        Use get_control to see available labels for a device.
         
         Args:
-            device_ref: The device reference ID
-            label: The control label
-            
+            device_ref: Device reference ID
+            label: Control label (e.g., "On", "Off", "Dim 50%")
         Returns:
             True if successful
         """
