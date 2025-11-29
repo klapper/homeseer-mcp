@@ -9,6 +9,11 @@ venv/
 # pytest cache
 .pytest_cache/
 
+# Coverage reports
+.coverage
+coverage.xml
+htmlcov/
+
 # Configuration files with sensitive data
 config.json
 

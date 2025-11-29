@@ -76,7 +76,7 @@ class HomeSeerAPIClient:
         data = self._make_request(request="getstatus")
         return data.get("Devices", [])
     
-    def get_device_by_ref(self, device_ref: str) -> Dict[str, Any]:
+    def get_device_by_ref(self, device_ref: int) -> Dict[str, Any]:
         """
         Get a specific device by its reference ID.
         
@@ -409,5 +409,5 @@ def main() -> None:
     server.run()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()
