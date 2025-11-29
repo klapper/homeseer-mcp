@@ -3,6 +3,7 @@ Unit tests for configuration module.
 """
 
 import json
+from unittest.mock import patch, Mock
 from config import HomeSeerConfig, ConfigManager
 
 
@@ -215,6 +216,183 @@ class TestConfigManager:
         
         assert config1.url == "http://test1.local/JSON"
         assert config2.url == "http://test2.local/JSON"
+    
+    def test_load_file_permission_error(self, tmp_path):
+        """Test handling of file read errors (e.g., permission denied)."""
+        config_file = tmp_path / "config.json"
+        
+        # Create file then make it unreadable (simulate permission error)
+        with open(config_file, "w") as f:
+            json.dump({"url": "http://test.local/JSON"}, f)
+        
+        # Mock open to raise an exception
+        from unittest.mock import patch, mock_open
+        with patch("builtins.open", side_effect=PermissionError("Access denied")):
+            manager = ConfigManager(config_path=config_file)
+            config = manager.load_config()
+            
+            # Should fall back to defaults
+            assert config.url == "https://connected2.homeseer.com/json"
+    
+    def test_invalid_timeout_env_var(self, monkeypatch):
+        """Test handling of invalid timeout value in environment variable."""
+        monkeypatch.setenv("HOMESEER_TIMEOUT", "not-a-number")
+        
+        manager = ConfigManager(config_path=None)
+        config = manager.load_config()
+        
+        # Should use default timeout when invalid
+        assert config.timeout == 30
+    
+    def test_load_config_with_token_logging(self, tmp_path, caplog):
+        """Test that loading config with token logs appropriate message."""
+        import logging
+        caplog.set_level(logging.INFO)
+        
+        config_file = tmp_path / "config.json"
+        config_data = {"token": "test-token-123"}
+        
+        with open(config_file, "w") as f:
+            json.dump(config_data, f)
+        
+        manager = ConfigManager(config_path=config_file)
+        config = manager.load_config()
+        
+        # Check that token authentication was logged
+        assert any("Authentication: Token" in record.message for record in caplog.records)
+    
+    def test_load_config_with_username_logging(self, tmp_path, caplog):
+        """Test that loading config with username logs appropriate message."""
+        import logging
+        caplog.set_level(logging.INFO)
+        
+        config_file = tmp_path / "config.json"
+        config_data = {"username": "testuser", "password": "testpass"}
+        
+        with open(config_file, "w") as f:
+            json.dump(config_data, f)
+        
+        manager = ConfigManager(config_path=config_file)
+        config = manager.load_config()
+        
+        # Check that username/password authentication was logged
+        assert any("Authentication: Username/Password" in record.message for record in caplog.records)
+        assert any("testuser" in record.message for record in caplog.records)
+    
+    def test_load_config_no_auth_warning(self, tmp_path, caplog):
+        """Test that loading config without auth logs warning."""
+        import logging
+        caplog.set_level(logging.WARNING)
+        
+        config_file = tmp_path / "config.json"
+        config_data = {"url": "http://test.local/JSON"}
+        
+        with open(config_file, "w") as f:
+            json.dump(config_data, f)
+        
+        manager = ConfigManager(config_path=config_file)
+        config = manager.load_config()
+        
+        # Check that warning about no authentication was logged
+        assert any("No authentication configured" in record.message for record in caplog.records)
+    
+    def test_find_config_in_script_directory(self, tmp_path, monkeypatch):
+        """Test finding config.json in the script directory."""
+        # Change to directory with no config
+        work_dir = tmp_path / "workdir"
+        work_dir.mkdir()
+        monkeypatch.chdir(work_dir)
+        
+        # Create config in what will be the "script directory"
+        script_dir = tmp_path / "scriptdir"
+        script_dir.mkdir()
+        config_file = script_dir / "config.json"
+        config_data = {"url": "http://script-dir.local/JSON"}
+        with open(config_file, "w") as f:
+            json.dump(config_data, f)
+        
+        # Mock Path(__file__).parent to return script_dir
+        with patch('config.Path') as mock_path_class:
+            mock_path_class.cwd.return_value = work_dir
+            mock_instance = Mock()
+            mock_instance.parent = script_dir
+            mock_path_class.return_value = mock_instance
+            
+            manager = ConfigManager(config_path=None)
+            found = manager._find_config_file()
+            
+            assert found == config_file
+    
+    def test_find_config_in_parent_directory(self, tmp_path, monkeypatch):
+        """Test finding config.json in parent directory of script."""
+        # Change to directory with no config
+        work_dir = tmp_path / "workdir"
+        work_dir.mkdir()
+        monkeypatch.chdir(work_dir)
+        
+        # Create directory structure: parent_dir/script_dir
+        parent_dir = tmp_path / "parentdir"
+        parent_dir.mkdir()
+        script_dir = parent_dir / "scriptdir"
+        script_dir.mkdir()
+        
+        # Put config in parent directory
+        config_file = parent_dir / "config.json"
+        config_data = {"url": "http://parent-dir.local/JSON"}
+        with open(config_file, "w") as f:
+            json.dump(config_data, f)
+        
+        # Mock Path to simulate script in script_dir
+        with patch('config.Path') as mock_path_class:
+            mock_path_class.cwd.return_value = work_dir
+            mock_instance = Mock()
+            mock_instance.parent = script_dir
+            mock_path_class.return_value = mock_instance
+            
+            manager = ConfigManager(config_path=None)
+            found = manager._find_config_file()
+            
+            assert found == config_file
+    
+    def test_find_config_returns_none(self, tmp_path, monkeypatch):
+        """Test that _find_config_file returns None when no config exists."""
+        # Create empty directories
+        work_dir = tmp_path / "workdir"
+        work_dir.mkdir()
+        script_dir = tmp_path / "scriptdir"
+        script_dir.mkdir()
+        parent_dir = tmp_path / "parentdir"
+        parent_dir.mkdir()
+        
+        monkeypatch.chdir(work_dir)
+        
+        # Mock Path to simulate no config anywhere
+        with patch('config.Path') as mock_path_class:
+            mock_path_class.cwd.return_value = work_dir
+            mock_instance = Mock()
+            mock_instance.parent = parent_dir / "subdir"  # No config here either
+            mock_path_class.return_value = mock_instance
+            
+            manager = ConfigManager(config_path=None)
+            found = manager._find_config_file()
+            
+            # Should return None when no config found
+            assert found is None
+    
+    def test_find_config_current_directory_first(self, tmp_path, monkeypatch):
+        """Test that current directory is checked first."""
+        # Create config in current directory
+        monkeypatch.chdir(tmp_path)
+        config_file = tmp_path / "config.json"
+        config_data = {"url": "http://current-dir.local/JSON"}
+        with open(config_file, "w") as f:
+            json.dump(config_data, f)
+        
+        # ConfigManager without explicit path should find it in current dir
+        manager = ConfigManager(config_path=None)
+        found = manager._find_config_file()
+        
+        assert found == config_file
 
 
 class TestGlobalFunctions:
@@ -227,3 +405,22 @@ class TestGlobalFunctions:
         config = get_config()
         assert config is not None
         assert isinstance(config, HomeSeerConfig)
+    
+    def test_get_config_function(self):
+        """Test the global get_config() convenience function."""
+        from config import get_config, HomeSeerConfig
+        
+        config = get_config()
+        
+        assert isinstance(config, HomeSeerConfig)
+        assert config.url is not None
+        assert config.source == "homeseer-mcp"
+    
+    def test_get_config_manager_singleton(self):
+        """Test that get_config_manager returns singleton instance."""
+        from config import get_config_manager
+        
+        manager1 = get_config_manager()
+        manager2 = get_config_manager()
+        
+        assert manager1 is manager2

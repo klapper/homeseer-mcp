@@ -10,6 +10,8 @@ from config import HomeSeerConfig
 
 
 class TestHomeSeerAPIClient:
+    """Tests for HomeSeerAPIClient class."""
+    
     def test_get_control(self, client):
         """Test getting ControlPairs for a device."""
         mock_controls = [
@@ -92,7 +94,6 @@ class TestHomeSeerAPIClient:
         
         with pytest.raises(ValueError, match="Must provide either event_id OR both group and name"):
             client.run_event(name="Outside Lights Off")
-    """Tests for HomeSeerAPIClient class."""
     
     @pytest.fixture
     def config(self):
@@ -254,6 +255,8 @@ class TestHomeSeerAPIClient:
 
 
 class TestHomeSeerMCPServer:
+    """Tests for HomeSeerMCPServer class."""
+    
     def test_get_control(self, server, mock_client):
         """Test MCPServer get_control tool."""
         mock_controls = [
@@ -414,7 +417,6 @@ class TestHomeSeerMCPServer:
             name="outside lights off",
             event_id=None
         )
-    """Tests for HomeSeerMCPServer class."""
     
     @pytest.fixture
     def config(self):
@@ -689,6 +691,32 @@ class TestHomeSeerMCPServer:
                 assert params['request'] == 'controldevicebylabel'
                 assert params['ref'] == 100
                 assert params['label'] == 'Close'
+
+
+class TestMainEntryPoint:
+    """Tests for main entry point function."""
+    
+    def test_main_creates_and_runs_server(self):
+        """Test that main() configures logging, creates server, and runs it."""
+        from server import main
+        
+        with patch('server.logging.basicConfig') as mock_logging:
+            with patch('server.HomeSeerMCPServer') as mock_server_class:
+                mock_server_instance = MagicMock()
+                mock_server_class.return_value = mock_server_instance
+                
+                # Call main
+                main()
+                
+                # Verify logging was configured
+                mock_logging.assert_called_once()
+                call_kwargs = mock_logging.call_args[1]
+                assert call_kwargs['level'] == 10  # logging.DEBUG = 10
+                assert 'format' in call_kwargs
+                
+                # Verify server was created and run
+                mock_server_class.assert_called_once()
+                mock_server_instance.run.assert_called_once()
 
 
 if __name__ == "__main__":
